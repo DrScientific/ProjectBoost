@@ -1,13 +1,26 @@
 ﻿using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 
 public class Rocket : MonoBehaviour
 {
     Rigidbody rigidbody;
     AudioSource audioSource;
+    [SerializeField] AudioClip thrustAudio;
+    [SerializeField] AudioClip rcsAudio;
+    [SerializeField] AudioClip explosionAudio;
+    [SerializeField] AudioClip levelCompleteAudio;
+    [SerializeField] ParticleSystem thrustParticleSystem;
+    [SerializeField] ParticleSystem deathParticleSystem;
+    [SerializeField] ParticleSystem levelCompleteParticleSystem;
     [SerializeField] float thrustForce = 10f;
     [SerializeField] float rcsThrust = 10f;
+    [SerializeField] float levelLoadDelay = 2f;
+    bool isInvincible = false;
+    bool isTransitioning = false;
+
+    enum PlayerState { Alive, Dying, Transcending }
 
     // Start is called before the first frame update
     void Start()
@@ -18,46 +31,115 @@ public class Rocket : MonoBehaviour
 
     void Update()
     {
-        ProcessInput();
-    }    
+        if (!isTransitioning)
+        {
+            ProcessInput();
+        }
+    }
+
+    private void OnCollisionEnter(Collision collision)
+    {
+        if (!isTransitioning)
+        {
+            switch (collision.gameObject.tag)
+            {
+                case "Friendly":
+                    break;
+                case "Finish":
+                    StartLevelCompleteSequence();
+                    break;
+                default:
+                    if (!isInvincible)
+                    {
+                        StartDeathSequence();
+                    }
+                    break;
+            }
+        }
+    }
 
     void ProcessInput()
     {
-        ProcessThrust();
-        ProcessRCS();
+        if (Input.GetKey(KeyCode.Space))
+        {
+            ProcessThrust();
+        }
+        else if (audioSource.isPlaying)
+        {
+            thrustParticleSystem.Stop();
+            audioSource.Stop();
+        }
+        if (Input.GetKey(KeyCode.A))
+        {
+            ProcessRCS(true);
+        }
+        else if (Input.GetKey(KeyCode.D))
+        {
+            ProcessRCS(false);
+        }
+        if (Debug.isDebugBuild)
+        {
+            if (Input.GetKeyDown(KeyCode.L))
+            {
+                LoadNextLevel();
+            }
+            else if (Input.GetKeyDown(KeyCode.I))
+            {
+                isInvincible = !isInvincible;
+            }
+        }
     }
 
     void ProcessThrust()
     {
-        if (Input.GetKey(KeyCode.Space))
+        rigidbody.AddRelativeForce(Vector3.up * thrustForce * Time.deltaTime);
+        if (!audioSource.isPlaying)
         {
-            rigidbody.AddRelativeForce(Vector3.up * thrustForce * Time.deltaTime);
-            if (!audioSource.isPlaying)
-            {
-                audioSource.Play();
-            }
+            audioSource.PlayOneShot(thrustAudio);
         }
-        else if (audioSource.isPlaying)
+        if(!thrustParticleSystem.isPlaying)
         {
-            audioSource.Stop();
+            thrustParticleSystem.Play();
         }
     }
 
-    void ProcessRCS()
+    void ProcessRCS(bool rotateLeft)
     {
-        rigidbody.freezeRotation = true;    //Manually takes control of the rotation, getting rid of any lingering physics based rotation.
+        Vector3 rotationAxis = rotateLeft ? Vector3.forward : Vector3.back;
+
+        rigidbody.angularVelocity = Vector3.zero;
 
         float rotationThisFrame = rcsThrust * Time.deltaTime;
+        transform.Rotate(rotationAxis * rotationThisFrame);
+    }
 
-        if (Input.GetKey(KeyCode.A))
-        {
-            transform.Rotate(Vector3.forward * rotationThisFrame);
-        }
-        else if (Input.GetKey(KeyCode.D))
-        {
-            transform.Rotate(Vector3.back * rotationThisFrame);
-        }
+    private void StartLevelCompleteSequence()
+    {
+        isTransitioning = true;
+        levelCompleteParticleSystem.Play();
+        audioSource.Stop();
+        audioSource.PlayOneShot(levelCompleteAudio);
+        Invoke("LoadNextLevel", levelLoadDelay);
+    }
 
-        rigidbody.freezeRotation = false;    //Allows for physics based rotation once more.
+    private void StartDeathSequence()
+    {
+        isTransitioning = true;
+        deathParticleSystem.Play();
+        audioSource.Stop();
+        audioSource.PlayOneShot(explosionAudio);
+        Invoke("LoadFirstLevel", levelLoadDelay);
+    }
+
+    private void LoadFirstLevel()
+    {
+        SceneManager.LoadScene(0);
+    }
+
+    private void LoadNextLevel()
+    {
+        int currentSceneIndex = SceneManager.GetActiveScene().buildIndex;
+        int nextSceneIndex = (currentSceneIndex == SceneManager.sceneCountInBuildSettings - 1 ? 0 : currentSceneIndex + 1);
+        SceneManager.LoadScene(nextSceneIndex);
     }
 }
